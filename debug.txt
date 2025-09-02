@@ -1,0 +1,22 @@
+INFO  [heatmap] Generating static heat map
+INFO  [heatmap] Processing 475 tournament locations
+INFO  [heatmap] Heat map saved to /home/ubuntu/claude/tournament_tracker/tournament_heatmap.png
+INFO  [heatmap] Generating static heat map
+INFO  [heatmap] Processing 475 tournament locations
+INFO  [heatmap] Added map background
+INFO  [heatmap] Heat map saved to /home/ubuntu/claude/tournament_tracker/tournament_heatmap_with_map.png
+INFO  [heatmap] Generating attendance density map
+INFO  [heatmap] Attendance density map saved to /home/ubuntu/claude/tournament_tracker/attendance_heatmap.png
+INFO  [heatmap] Generating static heat map
+INFO  [heatmap] Processing 475 tournament locations
+INFO  [heatmap] Heat map saved to /home/ubuntu/claude/tournament_tracker/tournament_heatmap.png
+INFO  [heatmap] Generating static heat map
+INFO  [heatmap] Processing 475 tournament locations
+INFO  [heatmap] Added map background
+INFO  [heatmap] Heat map saved to /home/ubuntu/claude/tournament_tracker/tournament_heatmap_with_map.png
+INFO  [heatmap] Generating attendance density map
+INFO  [heatmap] Attendance density map saved to /home/ubuntu/claude/tournament_tracker/attendance_heatmap.png
+INFO  [heatmap] Added map background
+INFO  [heatmap] Heat map saved to /home/ubuntu/claude/tournament_tracker/tournament_heatmap_with_map.png
+INFO  [heatmap] Generating attendance density map
+INFO  [heatmap] Attendance density map saved to /home/ubuntu/claude/tournament_tracker/attendance_heatmap.png

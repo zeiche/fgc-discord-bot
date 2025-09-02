@@ -15,8 +15,9 @@ import re
 sys.path.insert(0, '/home/ubuntu/claude/tournament_tracker')
 
 from claude_ai import get_ai_response, get_claude_ai
-from database_utils import get_summary_stats, get_session, get_attendance_rankings
+from database_utils import get_summary_stats, get_session, get_attendance_rankings, get_player_rankings
 from claude_dev_helper import extract_developer_commands, get_command_suggestion
+from async_handler import ProgressiveTask, StreamingResponse, run_with_progress
 from sqlalchemy import text
 import subprocess
 import traceback
@@ -156,19 +157,56 @@ async def handle_developer_execution(message):
                 await message.channel.send(f"❌ Execution error: {e}")
                 return True
     
-    # Top organizations shortcut
+    # Top organizations shortcut with progress
     if 'top organizations' in msg_lower or 'top orgs' in msg_lower:
-        await message.channel.send("Getting top organizations...")
+        progress = ProgressiveTask(message.channel, "Organization Rankings")
+        await progress.start()
         try:
+            await progress.update("Querying database...")
             rankings = get_attendance_rankings(10)
+            await progress.update(f"Found {len(rankings)} organizations")
+            
             output = "**Top 10 Organizations by Attendance:**\n```\n"
             for i, org in enumerate(rankings, 1):
                 output += f"{i:2}. {org['display_name'][:30]:30} - {org['total_attendance']:,} attendees ({org['tournament_count']} events)\n"
             output += "```"
+            
+            await progress.complete("Rankings calculated")
             await message.channel.send(output)
             return True
         except Exception as e:
-            await message.channel.send(f"❌ Error: {e}")
+            await progress.error(str(e))
+            return True
+    
+    # Top players with progress updates
+    if 'top players' in msg_lower or 'player rankings' in msg_lower:
+        progress = ProgressiveTask(message.channel, "Player Rankings")
+        await progress.start()
+        try:
+            await progress.update("Calculating player scores...")
+            
+            # Determine event type
+            event_type = 'all'
+            if 'singles' in msg_lower:
+                event_type = 'singles'
+                await progress.update("Filtering for singles events")
+            elif 'doubles' in msg_lower:
+                event_type = 'doubles'
+                await progress.update("Filtering for doubles events")
+            
+            rankings = get_player_rankings(10, event_type, 1)
+            await progress.update(f"Ranked {len(rankings)} players")
+            
+            output = f"**Top Players ({event_type.title()}):**\n```\n"
+            for r in rankings:
+                output += f"{r['rank']:2}. {r['gamer_tag'][:20]:20} - {r['total_points']} pts ({r['tournament_count']} events)\n"
+            output += "```"
+            
+            await progress.complete()
+            await message.channel.send(output)
+            return True
+        except Exception as e:
+            await progress.error(str(e))
             return True
     
     return False
@@ -211,10 +249,68 @@ async def on_message(message):
         # Handle quick status checks
         if any(phrase in msg_lower for phrase in ['are you there', 'you there', 'still there', 'hello?', 'status']):
             if len(msg_lower) < 20:
-                await message.channel.send("Yes, I'm here! Feel free to ask me about tournament data privately. 🔒")
+                await message.channel.send("Yes")
                 return
         
-        # Get AI response for DM
+        # Check for heat map requests FIRST in DMs
+        if any(word in msg_lower for word in ['heat map', 'heatmap', 'heat-map']):
+            if any(word in msg_lower for word in ['make', 'create', 'show', 'see', 'generate', 'view', 'display', 'give', 'send']):
+                # Import heatmap generation functions
+                import os
+                import sys
+                sys.path.insert(0, '/home/ubuntu/claude/tournament_tracker')
+                from tournament_heatmap import generate_static_heatmap, generate_attendance_heatmap
+                
+                # Generate heatmaps if requested or if they don't exist
+                should_generate = any(word in msg_lower for word in ['make', 'create', 'generate', 'update', 'refresh'])
+                
+                heat_map_files = [
+                    ('tournament_heatmap.png', '🗺️ **Tournament Density Heat Map**\nShowing geographic distribution of tournaments'),
+                    ('tournament_heatmap_with_map.png', '🌍 **Heat Map with Street Overlay**\nTournament locations on street map'),
+                    ('attendance_heatmap.png', '📊 **Attendance-Weighted Heat Map**\nLarger circles = higher attendance')
+                ]
+                
+                # Check if files exist or need regeneration
+                base_path = '/home/ubuntu/claude/tournament_tracker'
+                files_exist = all(os.path.exists(f"{base_path}/{f[0]}") for f in heat_map_files)
+                
+                if should_generate or not files_exist:
+                    await message.channel.send("🔄 Generating heat maps...")
+                    
+                    # Generate the heatmaps
+                    try:
+                        generate_static_heatmap(f'{base_path}/tournament_heatmap.png', use_map_background=False)
+                        generate_static_heatmap(f'{base_path}/tournament_heatmap_with_map.png', use_map_background=True)
+                        generate_attendance_heatmap(f'{base_path}/attendance_heatmap.png')
+                        logger.info("Generated fresh heat maps for DM")
+                    except Exception as e:
+                        logger.error(f"Failed to generate heat maps: {e}")
+                        await message.channel.send("❌ Error generating heat maps. Check logs.")
+                        return
+                
+                # Send the heat map images
+                files_sent = 0
+                for filename, description in heat_map_files:
+                    file_path = f"{base_path}/{filename}"
+                    if os.path.exists(file_path):
+                        try:
+                            # Send description first, then the image
+                            await message.channel.send(description)
+                            file = discord.File(file_path)
+                            await message.channel.send(file=file)
+                            files_sent += 1
+                            logger.info(f"Sent heat map image to DM: {file_path}")
+                        except Exception as e:
+                            logger.error(f"Failed to send {file_path} to DM: {e}")
+                
+                if files_sent > 0:
+                    await message.channel.send(f"✅ Displayed {files_sent} heat map visualizations\n💡 Try: 'show attendance heatmap' or 'create new heatmaps'")
+                    return
+                else:
+                    await message.channel.send("❌ No heat map files found. Try: 'create heat maps'")
+                    return
+        
+        # Get AI response for DM (if not a heatmap request)
         async with message.channel.typing():
             response = await get_ai_response(
                 message.content,
@@ -253,37 +349,66 @@ async def on_message(message):
     msg_lower = message.content.lower()
     if any(phrase in msg_lower for phrase in ['are you there', 'you there', 'still there', 'hello?', 'status']):
         if len(msg_lower) < 20:  # Short status check messages
-            await message.channel.send("Yes, I'm here! Processing your requests... 👍")
+            await message.channel.send("Yes")
             logger.info("Responded to status check")
             return
     
-    # Check for heat map requests in stats channel
-    if is_stats_channel and any(word in msg_lower for word in ['heat map', 'heatmap', 'heat-map']):
-        if any(word in msg_lower for word in ['make', 'create', 'show', 'see', 'generate', 'view']):
-            # Send the actual heat map images
+    # Check for heat map requests in ANY channel
+    if any(word in msg_lower for word in ['heat map', 'heatmap', 'heat-map']):
+        if any(word in msg_lower for word in ['make', 'create', 'show', 'see', 'generate', 'view', 'display', 'give', 'send']):
+            # Import heatmap generation functions
             import os
+            import sys
+            sys.path.insert(0, '/home/ubuntu/claude/tournament_tracker')
+            from tournament_heatmap import generate_static_heatmap, generate_attendance_heatmap
+            
+            # Generate heatmaps if requested or if they don't exist
+            should_generate = any(word in msg_lower for word in ['make', 'create', 'generate', 'update', 'refresh'])
+            
             heat_map_files = [
-                '/home/ubuntu/claude/tournament_tracker/tournament_heatmap.png',
-                '/home/ubuntu/claude/tournament_tracker/attendance_heatmap.png'
+                ('tournament_heatmap.png', '🗺️ **Tournament Density Heat Map**\nShowing geographic distribution of tournaments'),
+                ('tournament_heatmap_with_map.png', '🌍 **Heat Map with Street Overlay**\nTournament locations on street map'),
+                ('attendance_heatmap.png', '📊 **Attendance-Weighted Heat Map**\nLarger circles = higher attendance')
             ]
             
-            files_sent = False
-            for file_path in heat_map_files:
+            # Check if files exist or need regeneration
+            base_path = '/home/ubuntu/claude/tournament_tracker'
+            files_exist = all(os.path.exists(f"{base_path}/{f[0]}") for f in heat_map_files)
+            
+            if should_generate or not files_exist:
+                await message.channel.send("🔄 Generating heat maps...")
+                
+                # Generate the heatmaps
+                try:
+                    generate_static_heatmap(f'{base_path}/tournament_heatmap.png', use_map_background=False)
+                    generate_static_heatmap(f'{base_path}/tournament_heatmap_with_map.png', use_map_background=True)
+                    generate_attendance_heatmap(f'{base_path}/attendance_heatmap.png')
+                    logger.info("Generated fresh heat maps")
+                except Exception as e:
+                    logger.error(f"Failed to generate heat maps: {e}")
+                    await message.channel.send("❌ Error generating heat maps. Check logs.")
+                    return
+            
+            # Send the heat map images
+            files_sent = 0
+            for filename, description in heat_map_files:
+                file_path = f"{base_path}/{filename}"
                 if os.path.exists(file_path):
                     try:
+                        # Send description first, then the image
+                        await message.channel.send(description)
                         file = discord.File(file_path)
-                        file_name = os.path.basename(file_path)
-                        await message.channel.send(
-                            f"Here's the {file_name.replace('_', ' ').replace('.png', '')}! 🔥",
-                            file=file
-                        )
-                        files_sent = True
-                        logger.info(f"Sent heat map image: {file_name}")
+                        await message.channel.send(file=file)
+                        files_sent += 1
+                        logger.info(f"Sent heat map image: {file_path}")
                     except Exception as e:
                         logger.error(f"Failed to send {file_path}: {e}")
             
-            if files_sent:
-                await message.channel.send("These heat maps show tournament attendance patterns across SoCal venues and times. The hotspots show where the FGC is most active! 📊")
+            if files_sent > 0:
+                await message.channel.send(f"✅ Displayed {files_sent} heat map visualizations\n💡 Try: 'show attendance heatmap' or 'create new heatmaps'")
+                return
+            else:
+                await message.channel.send("❌ No heat map files found. Try: 'create heat maps'")
                 return
     
     # In developer channel, check for execution requests
@@ -293,10 +418,6 @@ async def on_message(message):
             return
     
     # Get AI response with typing indicator
-    # For complex requests, send initial acknowledgment
-    complex_keywords = ['analyze', 'complex', 'detailed', 'comprehensive', 'full', 'everything']
-    if any(word in msg_lower for word in complex_keywords):
-        await message.channel.send("Working on that for you... 🤔")
     
     async with message.channel.typing():
         response = await get_ai_response(
@@ -325,9 +446,49 @@ async def sync(ctx):
         await ctx.send("Admin permission required for sync")
         return
     
-    await ctx.send("Starting sync from start.gg...")
-    # Add sync logic here if needed
-    await ctx.send("Sync complete!")
+    progress = ProgressiveTask(ctx.channel, "Tournament Sync")
+    await progress.start("Connecting to start.gg API...")
+    
+    try:
+        from startgg_sync import sync_from_startgg
+        
+        # Run sync with progress updates
+        async def sync_with_updates():
+            await progress.update("Fetching tournament list...")
+            await asyncio.sleep(0.5)
+            
+            # Run sync in background executor
+            loop = asyncio.get_event_loop()
+            stats = await loop.run_in_executor(
+                None,
+                sync_from_startgg,
+                250,  # page_size
+                False,  # fetch_standings
+                5  # standings_limit
+            )
+            return stats
+        
+        # Simulate progress during sync
+        sync_task = asyncio.create_task(sync_with_updates())
+        
+        # Update status while syncing
+        for i in range(10):
+            if sync_task.done():
+                break
+            await progress.update(f"Processing tournaments... ({i*10}%)", append=False)
+            await asyncio.sleep(2)
+        
+        stats = await sync_task
+        
+        if stats:
+            await progress.update(f"Processed {stats['summary']['tournaments_processed']} tournaments")
+            await progress.update(f"Created {stats['summary']['organizations_created']} organizations")
+            await progress.complete(f"Success rate: {stats['summary']['success_rate']:.1f}%")
+        else:
+            await progress.error("Sync failed - check logs")
+            
+    except Exception as e:
+        await progress.error(str(e))
 
 @bot.command()
 async def restart(ctx):
