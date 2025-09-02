@@ -1,0 +1,9 @@
+# System Goals and Objectives
+
+## Current Tasks
+- [ ] Awaiting specific administration tasks from user
+
+## Notes
+- Working directory: /home/ubuntu/claude
+- System: Ubuntu Linux (6.8.0-45-generic)
+- Ready to assist with VPS administration and development tasks

@@ -1,0 +1,16 @@
+# System Notes
+
+## Environment
+- Platform: Linux (Ubuntu)
+- Working directory: /home/ubuntu/claude
+- Date: 2025-09-01
+
+## Observations
+- User has VPS administration needs
+- Python package management should use venvs to avoid --break-system-packages
+- User prefers concise, direct responses
+
+## Session Context
+- User inquired about VPS administration capabilities
+- Discussed proper package installation methods
+- Created persistent storage area for goals and notes

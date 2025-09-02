@@ -1,0 +1,16 @@
+[Unit]
+Description=AI-Powered Discord Bot with Claude Integration
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/claude
+EnvironmentFile=/home/ubuntu/claude/.env.discord
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/usr/bin/python3 /home/ubuntu/claude/discord_ai_bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
