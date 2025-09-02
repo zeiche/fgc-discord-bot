@@ -1,0 +1,17 @@
+[Unit]
+Description=Tournament Tracker Discord Bot (Conversational)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/claude
+EnvironmentFile=/home/ubuntu/claude/.env.discord
+ExecStart=/usr/bin/python3 /home/ubuntu/claude/discord_conversational.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/ubuntu/claude/discord_bot.log
+StandardError=append:/home/ubuntu/claude/discord_bot_error.log
+
+[Install]
+WantedBy=multi-user.target

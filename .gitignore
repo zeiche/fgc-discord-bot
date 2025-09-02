@@ -1,0 +1,25 @@
+# Environment and secrets
+.env.discord
+*.env
+
+# Logs
+*.log
+discord_bot.log
+discord_bot_error.log
+ai_bot.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Database
+*.db
+tournament_tracker.db
+
+# Archives
+*.zip
+archived_bots/
+
+# Temporary
+*.tmp
