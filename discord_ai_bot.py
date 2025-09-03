@@ -252,6 +252,95 @@ async def on_message(message):
                 await message.channel.send("Yes")
                 return
         
+        # Check for graph requests in DMs  
+        if any(word in msg_lower for word in ['graph', 'chart', 'plot', 'trend', 'analytics']):
+            if any(word in msg_lower for word in ['attendance', 'frequency', 'venue', 'growth', 'show', 'create', 'generate']):
+                # Import graph generation functions
+                import os
+                import sys
+                import time
+                sys.path.insert(0, '/home/ubuntu/claude/tournament_tracker')
+                from tournament_graphs import (
+                    generate_attendance_by_org_over_time,
+                    generate_tournament_frequency_graph,
+                    generate_top_venues_graph,
+                    generate_growth_trend_graph
+                )
+                
+                await message.channel.send("📊 Generating graph...")
+                
+                # Determine which graph to generate
+                timestamp = str(int(time.time()))
+                base_path = '/home/ubuntu/claude/tournament_tracker'
+                graph_file = None
+                description = None
+                
+                try:
+                    if 'attendance' in msg_lower or 'over time' in msg_lower or 'trend' in msg_lower:
+                        # Check for specific organization
+                        org_name = None
+                        original_query = None
+                        if ' for ' in msg_lower:
+                            parts = message.content.split(' for ')
+                            if len(parts) > 1:
+                                potential_org = parts[1].strip()
+                                # Check if it's a year/date (don't treat as org name)
+                                if not re.match(r'^\d{4}$', potential_org) and 'q1' not in potential_org.lower() and 'q2' not in potential_org.lower() and 'q3' not in potential_org.lower() and 'q4' not in potential_org.lower():
+                                    original_query = potential_org
+                                    org_name = original_query
+                        
+                        graph_file = f'graph_attendance_{timestamp}.png'
+                        filepath = f'{base_path}/{graph_file}'
+                        if generate_attendance_by_org_over_time(org_name, filepath):
+                            if org_name:
+                                # The function will have done fuzzy matching internally
+                                description = f"📈 **Attendance Over Time**\n🔍 Fuzzy matched: '{original_query}'"
+                            else:
+                                description = "📈 **Attendance Over Time - Top 5 Organizations**"
+                    
+                    elif 'frequency' in msg_lower or 'day' in msg_lower or 'week' in msg_lower:
+                        graph_file = f'graph_frequency_{timestamp}.png'
+                        filepath = f'{base_path}/{graph_file}'
+                        if generate_tournament_frequency_graph(filepath):
+                            description = "📅 **Tournament Frequency by Day of Week**"
+                    
+                    elif 'venue' in msg_lower or 'location' in msg_lower:
+                        graph_file = f'graph_venues_{timestamp}.png'
+                        filepath = f'{base_path}/{graph_file}'
+                        if generate_top_venues_graph(filepath):
+                            description = "🏢 **Top Tournament Venues**"
+                    
+                    elif 'growth' in msg_lower:
+                        graph_file = f'graph_growth_{timestamp}.png'
+                        filepath = f'{base_path}/{graph_file}'
+                        if generate_growth_trend_graph(filepath):
+                            description = "📊 **Tournament Growth Trend**"
+                    else:
+                        # Default to attendance over time
+                        graph_file = f'graph_attendance_{timestamp}.png'
+                        filepath = f'{base_path}/{graph_file}'
+                        if generate_attendance_by_org_over_time(None, filepath):
+                            description = "📈 **Attendance Over Time - Top 5 Organizations**"
+                    
+                    if graph_file and os.path.exists(f'{base_path}/{graph_file}'):
+                        await message.channel.send(description)
+                        file = discord.File(f'{base_path}/{graph_file}')
+                        await message.channel.send(file=file)
+                        
+                        # Clean up old temp graphs (older than 1 hour)
+                        for f in os.listdir(base_path):
+                            if f.startswith('graph_') and f.endswith('.png'):
+                                file_path = os.path.join(base_path, f)
+                                if os.path.getmtime(file_path) < time.time() - 3600:
+                                    os.remove(file_path)
+                    else:
+                        await message.channel.send("❌ Could not generate the requested graph")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to generate graph: {e}")
+                    await message.channel.send("❌ Error generating graph. Check logs.")
+                return
+        
         # Check for heat map requests FIRST in DMs
         if any(word in msg_lower for word in ['heat map', 'heatmap', 'heat-map']):
             if any(word in msg_lower for word in ['make', 'create', 'show', 'see', 'generate', 'view', 'display', 'give', 'send']):
@@ -260,29 +349,51 @@ async def on_message(message):
                 import sys
                 sys.path.insert(0, '/home/ubuntu/claude/tournament_tracker')
                 from tournament_heatmap import generate_static_heatmap, generate_attendance_heatmap
+                from date_parser import parse_date_range
+                
+                # Parse date range from query
+                start_date, end_date = parse_date_range(message.content)
+                date_suffix = ""
+                date_description = ""
+                
+                if start_date and end_date:
+                    import time
+                    date_suffix = f"_{int(time.time())}"
+                    date_description = f"\n📅 Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+                elif start_date:
+                    import time
+                    date_suffix = f"_{int(time.time())}"
+                    date_description = f"\n📅 From: {start_date.strftime('%Y-%m-%d')}"
+                elif end_date:
+                    import time  
+                    date_suffix = f"_{int(time.time())}"
+                    date_description = f"\n📅 Until: {end_date.strftime('%Y-%m-%d')}"
                 
                 # Generate heatmaps if requested or if they don't exist
                 should_generate = any(word in msg_lower for word in ['make', 'create', 'generate', 'update', 'refresh'])
                 
                 heat_map_files = [
-                    ('tournament_heatmap.png', '🗺️ **Tournament Density Heat Map**\nShowing geographic distribution of tournaments'),
-                    ('tournament_heatmap_with_map.png', '🌍 **Heat Map with Street Overlay**\nTournament locations on street map'),
-                    ('attendance_heatmap.png', '📊 **Attendance-Weighted Heat Map**\nLarger circles = higher attendance')
+                    (f'tournament_heatmap{date_suffix}.png', f'🗺️ **Tournament Density Heat Map**\nShowing geographic distribution of tournaments{date_description}'),
+                    (f'tournament_heatmap_with_map{date_suffix}.png', f'🌍 **Heat Map with Street Overlay**\nTournament locations on street map{date_description}'),
+                    (f'attendance_heatmap{date_suffix}.png', f'📊 **Attendance-Weighted Heat Map**\nLarger circles = higher attendance{date_description}')
                 ]
                 
                 # Check if files exist or need regeneration
                 base_path = '/home/ubuntu/claude/tournament_tracker'
-                files_exist = all(os.path.exists(f"{base_path}/{f[0]}") for f in heat_map_files)
+                files_exist = all(os.path.exists(f"{base_path}/{f[0]}") for f in heat_map_files) if not date_suffix else False
                 
-                if should_generate or not files_exist:
-                    await message.channel.send("🔄 Generating heat maps...")
+                if should_generate or not files_exist or date_suffix:
+                    await message.channel.send(f"🔄 Generating heat maps{' for specified date range' if date_suffix else ''}...")
                     
                     # Generate the heatmaps
                     try:
-                        generate_static_heatmap(f'{base_path}/tournament_heatmap.png', use_map_background=False)
-                        generate_static_heatmap(f'{base_path}/tournament_heatmap_with_map.png', use_map_background=True)
-                        generate_attendance_heatmap(f'{base_path}/attendance_heatmap.png')
-                        logger.info("Generated fresh heat maps for DM")
+                        generate_static_heatmap(f'{base_path}/{heat_map_files[0][0]}', use_map_background=False, 
+                                              start_date=start_date, end_date=end_date)
+                        generate_static_heatmap(f'{base_path}/{heat_map_files[1][0]}', use_map_background=True,
+                                              start_date=start_date, end_date=end_date)
+                        generate_attendance_heatmap(f'{base_path}/{heat_map_files[2][0]}',
+                                                   start_date=start_date, end_date=end_date)
+                        logger.info(f"Generated fresh heat maps for DM{' with date range' if date_suffix else ''}")
                     except Exception as e:
                         logger.error(f"Failed to generate heat maps: {e}")
                         await message.channel.send("❌ Error generating heat maps. Check logs.")
